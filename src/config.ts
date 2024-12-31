@@ -15,6 +15,13 @@ const configuration = new Configuration({
   baseOptions,
 })
 
-const hydraAdmin = new V0alpha2Api(configuration)
+const configuration2 = new Configuration({
+  basePath: process.env.KRATOS_ADMIN_URL,
+  accessToken: process.env.ORY_API_KEY || process.env.ORY_PAT,
+  baseOptions,
+})
 
-export { hydraAdmin }
+const hydraAdmin = new V0alpha2Api(configuration)
+const kratosAdmin = new V0alpha2Api(configuration2)
+
+export { hydraAdmin, kratosAdmin }

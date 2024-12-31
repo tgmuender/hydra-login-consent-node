@@ -5,9 +5,9 @@ import express from "express"
 import url from "url"
 import urljoin from "url-join"
 import csrf from "csurf"
-import { hydraAdmin } from "../config"
+import { hydraAdmin, kratosAdmin } from "../config"
 import { oidcConformityMaybeFakeSession } from "./stub/oidc-cert"
-import { AcceptOAuth2ConsentRequestSession } from "@ory/client"
+import {AcceptOAuth2ConsentRequestSession, Identity} from "@ory/client"
 
 // Sets up csrf protection
 const csrfProtection = csrf({
@@ -20,7 +20,6 @@ const router = express.Router()
 router.get("/", csrfProtection, (req, res, next) => {
   // Parses the URL query
   const query = url.parse(req.url, true).query
-
   // The challenge is used to fetch information about the consent request from ORY hydraAdmin.
   const challenge = String(query.consent_challenge)
   if (!challenge) {
@@ -28,14 +27,20 @@ router.get("/", csrfProtection, (req, res, next) => {
     return
   }
 
+
+  // let identity: Identity
   // This section processes consent requests and either shows the consent UI or
   // accepts the consent request right away if the user has given consent to this
   // app before
   hydraAdmin
     .adminGetOAuth2ConsentRequest(challenge)
     // This will be called if the HTTP request was successful
-    .then(({ data: body }) => {
-      // If a user has granted this application the requested scope, hydra will tell us to not show the UI.
+    .then(async ({ data: body }) => {
+        const { data: identity } = await kratosAdmin
+            .adminGetIdentity(String(body.subject));
+
+        console.log(identity);
+        // If a user has granted this application the requested scope, hydra will tell us to not show the UI.
       // Any cast needed because the SDK changes are still unreleased.
       // TODO: Remove in a later version.
       if (body.skip || (body.client as any)?.skip_consent) {
@@ -52,13 +57,21 @@ router.get("/", csrfProtection, (req, res, next) => {
             // ORY Hydra checks if requested audiences are allowed by the client, so we can simply echo this.
             grant_access_token_audience: body.requested_access_token_audience,
 
+
+
             // The session allows us to set session data for id and access tokens
             session: {
               // This data will be available when introspecting the token. Try to avoid sensitive information here,
               // unless you limit who can introspect tokens.
               // accessToken: { foo: 'bar' },
               // This data will be available in the ID token.
-              // idToken: { baz: 'bar' },
+              id_token: {
+                  // email scope
+                  email: String(identity.traits.email),
+                  email_verified: false,
+                  given_name: String(identity.traits.name.first),
+                  family_name: String(identity.traits.name.last)
+              }
             },
           })
           .then(({ data: body }) => {
@@ -87,6 +100,8 @@ router.get("/", csrfProtection, (req, res, next) => {
 router.post("/", csrfProtection, (req, res, next) => {
   // The challenge is now a hidden input field, so let's take it from the request body instead
   const challenge = req.body.challenge
+
+    console.log("POSTING")
 
   // Let's see if the user decided to accept or reject the consent request..
   if (req.body.submit === "Deny access") {
@@ -122,16 +137,16 @@ router.post("/", csrfProtection, (req, res, next) => {
 
     // This data will be available in the ID token.
     id_token: {
-      // baz: 'bar'
+       asdf: 'asdf'
     },
   }
 
   // Here is also the place to add data to the ID or access token. For example,
   // if the scope 'profile' is added, add the family and given name to the ID Token claims:
-  // if (grantScope.indexOf('profile')) {
-  //   session.id_token.family_name = 'Doe'
-  //   session.id_token.given_name = 'John'
-  // }
+  if (grantScope.indexOf('profile')) {
+     session.id_token.family_name = 'Doe'
+     session.id_token.given_name = 'John'
+  }
 
   // Let's fetch the consent request again to be able to set `grantAccessTokenAudience` properly.
   hydraAdmin
@@ -171,5 +186,7 @@ router.post("/", csrfProtection, (req, res, next) => {
     .catch(next)
   // label:docs-accept-consent
 })
+
+
 
 export default router
